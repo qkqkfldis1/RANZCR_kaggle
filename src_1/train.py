@@ -124,13 +124,14 @@ class RANZCREffiNet(nn.Module):
         in_ch = self.model.classifier.in_features
         #n_features = self.model.fc.in_features
         self.model.classifier = nn.Identity()
+        self.model.global_pool = nn.Identity()
 
         self.pooling = nn.AdaptiveAvgPool2d(1)
         self.fc = nn.Linear(in_ch, out_dim)
 
     def forward(self, x):
         bs = x.size(0)
-        features = self.model.extract(x)
+        features = self.model.forward_features(x)
         pooled_features = self.pooling(features).view(bs, -1) # TODO Add harddrop
         output = self.fc(pooled_features)
         return output
