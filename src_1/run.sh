@@ -1,0 +1,1 @@
+python train.py --root_dir /home/youhanlee/project/ranzcr/ --exp exp0 --DEBUG False --use_amp True --CUDA_VISIBLE_DEVICES "1" --image_size 512
