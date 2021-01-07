@@ -82,6 +82,7 @@ def parse_args():
     parser.add_argument('--warmup_factor', type=int, default=10)
     parser.add_argument('--warmup_epo', type=int, default=1)
     parser.add_argument('--num_workers', type=int, default=4)
+    parser.add_argument('--early_stop', type=int, default=5)
 
     parser.add_argument('--batch_size', type=int, default=12)
     parser.add_argument('--valid_batch_size', type=int, default=12)
@@ -113,6 +114,24 @@ class RANZCRResNet200D(nn.Module):
         bs = x.size(0)
         features = self.model(x)
         pooled_features = self.pooling(features).view(bs, -1)
+        output = self.fc(pooled_features)
+        return output
+
+class RANZCREffiNet(nn.Module):
+    def __init__(self, model_name='efficientnet_b0', out_dim=11, pretrained=True):
+        super().__init__()
+        self.model = timm.create_model(model_name, pretrained=pretrained)
+        in_ch = self.model.classifier.in_features
+        #n_features = self.model.fc.in_features
+        self.model.classifier = nn.Identity()
+
+        self.pooling = nn.AdaptiveAvgPool2d(1)
+        self.fc = nn.Linear(in_ch, out_dim)
+
+    def forward(self, x):
+        bs = x.size(0)
+        features = self.model.extract(x)
+        pooled_features = self.pooling(features).view(bs, -1) # TODO Add harddrop
         output = self.fc(pooled_features)
         return output
 
@@ -238,7 +257,10 @@ def main():
 
     #dataset = RANZERDataset(df_train, 'train', transform=args.transforms_train)
 
-    model = RANZCRResNet200D(args.model_name, out_dim=len(target_cols), pretrained=True)
+    if 'efficientnet' in args.model_name:
+        model = RANZCREffiNet(args.model_name, out_dim=len(target_cols), pretrained=True)
+    else:
+        model = RANZCRResNet200D(args.model_name, out_dim=len(target_cols), pretrained=True)
     model = model.to(device)
 
     criterion = nn.BCEWithLogitsLoss()
