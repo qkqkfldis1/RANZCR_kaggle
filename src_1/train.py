@@ -238,7 +238,7 @@ def main():
 
     #dataset = RANZERDataset(df_train, 'train', transform=args.transforms_train)
 
-    model = RANZCRResNet200D(out_dim=len(target_cols), pretrained=True)
+    model = RANZCRResNet200D(args.model_name, out_dim=len(target_cols), pretrained=True)
     model = model.to(device)
 
     criterion = nn.BCEWithLogitsLoss()
