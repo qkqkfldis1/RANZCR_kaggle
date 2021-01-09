@@ -243,25 +243,38 @@ def train_func(train_loader, model, optimizer, criterion):
 
 def valid_func(valid_loader, model, optimizer, criterion, target_cols):
     model.eval()
-    if args.local_rank == 0:
-        bar = tqdm(valid_loader)
+
 
     PROB = []
     TARGETS = []
     losses = []
     PREDS = []
-
-    with torch.no_grad():
-        for batch_idx, (images, targets) in enumerate(bar):
-            images, targets = images.to(device), targets.to(device)
-            logits = model(images)
-            PREDS += [logits.sigmoid()]
-            TARGETS += [targets.detach().cpu()]
-            loss = criterion(logits, targets)
-            losses.append(loss.item())
-            smooth_loss = np.mean(losses[-30:])
-            if args.local_rank == 0:
+    
+    if args.local_rank == 0:
+        bar = tqdm(valid_loader)
+        with torch.no_grad():
+            for batch_idx, (images, targets) in enumerate(bar):
+                images, targets = images.to(device), targets.to(device)
+                logits = model(images)
+                PREDS += [logits.sigmoid()]
+                TARGETS += [targets.detach().cpu()]
+                loss = criterion(logits, targets)
+                losses.append(loss.item())
+                smooth_loss = np.mean(losses[-30:])
                 bar.set_description(f'loss: {loss.item():.5f}, smth: {smooth_loss:.5f}')
+    else:
+        with torch.no_grad():
+            for batch_idx, (images, targets) in enumerate(valid_loader):
+                images, targets = images.to(device), targets.to(device)
+                logits = model(images)
+                PREDS += [logits.sigmoid()]
+                TARGETS += [targets.detach().cpu()]
+                loss = criterion(logits, targets)
+                losses.append(loss.item())
+                smooth_loss = np.mean(losses[-30:])
+                #if args.local_rank == 0:
+                #    bar.set_description(f'loss: {loss.item():.5f}, smth: {smooth_loss:.5f}')
+
 
     PREDS = torch.cat(PREDS).cpu().numpy()
     TARGETS = torch.cat(TARGETS).cpu().numpy()
@@ -369,9 +382,11 @@ def main():
                                        f'loss_valid: {loss_valid:.5f}, ' \
                                        f'roc_auc: {roc_auc:.6f}.\n'
         #print(content)
-        logger.write(content)
+        #logger.write(content)
         not_improving += 1
         if args.local_rank == 0:
+            print(content)
+            logger.write(content)
             if roc_auc > roc_auc_max:
                 logger.write(f'roc_auc_max ({roc_auc_max:.6f} --> {roc_auc:.6f}). Saving model ...\n')
                 torch.save(model.state_dict(), f'{args.model_dir}/{args.model_name}_fold{args.fold_id}_best_AUC_{roc_auc_max:.4f}.pth')
