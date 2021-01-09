@@ -1,0 +1,1 @@
+python train_apex.py --root_dir /home/ubuntu/lyh/RANZCR_kaggle/ --exp exp0 --DEBUG False --use_amp True --batch_size 36 --valid_batch_size 36 --num_workers 8 --model_name vit_large_patch16_384  --CUDA_VISIBLE_DEVICES "0,1,2" --image_size 384 --fold_id 1 --model_dir ./weights_1 --log_dir ./logs_1

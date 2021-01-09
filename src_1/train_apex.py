@@ -30,6 +30,9 @@ import timm
 from datasets import get_transforms, RANZERDataset
 import pickle
 
+import apex
+from apex import amp
+
 from warnings import filterwarnings
 filterwarnings("ignore")
 
@@ -210,23 +213,20 @@ def train_func(train_loader, model, optimizer, criterion):
         scaler = torch.cuda.amp.GradScaler()
     losses = []
     for batch_idx, (images, targets) in enumerate(bar):
-
         images, targets = images.to(device), targets.to(device)
+        optimizer.zero_grad()
 
         if args.use_amp:
-            with torch.cuda.amp.autocast():
-                logits = model(images)
-                loss = criterion(logits, targets)
-            scaler.scale(loss).backward()
-            scaler.step(optimizer)
-            scaler.update()
-            optimizer.zero_grad()
+            logits = model(images)
+            loss = criterion(logits, targets)
+            with amp.scale_loss(loss, optimizer) as scaled_loss:
+                scaled_loss.backward()
+            optimizer.step()
         else:
             logits = model(images)
             loss = criterion(logits, targets)
             loss.backward()
             optimizer.step()
-            optimizer.zero_grad()
 
         losses.append(loss.item())
         smooth_loss = np.mean(losses[-30:])
@@ -292,11 +292,13 @@ def main():
         model = RANZCRViT(args.model_name, out_dim=len(target_cols), pretrained=True)
     else:
         model = RANZCRResNet200D(args.model_name, out_dim=len(target_cols), pretrained=True)
+        
+        
+    if DP:
+        model = apex.parallel.convert_syncbn_model(model)
     model = model.to(device)
 
-    if DP:
-        model = nn.DataParallel(model)
-        print('Data Parallel')
+
 
     criterion = nn.BCEWithLogitsLoss()
     optimizer = optim.Adam(model.parameters(), lr=args.init_lr/args.warmup_factor)
@@ -304,6 +306,12 @@ def main():
     scheduler_warmup = GradualWarmupSchedulerV2(optimizer, multiplier=10,
                                                 total_epoch=args.warmup_epo,
                                                 after_scheduler=scheduler_cosine)
+    
+    if args.use_amp:
+        model, optimizer = amp.initialize(model, optimizer, opt_level="O1")
+    if DP:
+        model = nn.DataParallel(model)
+    
 
     df_train_this = df_train[df_train['fold'] != args.fold_id]
     df_valid_this = df_train[df_train['fold'] == args.fold_id]

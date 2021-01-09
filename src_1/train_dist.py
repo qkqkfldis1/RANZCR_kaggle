@@ -1,3 +1,4 @@
+
 import pandas as pd
 import numpy as np
 import sys
@@ -28,6 +29,8 @@ import seaborn as sns
 from pylab import rcParams
 import timm
 from datasets import get_transforms, RANZERDataset
+from torch.utils.data.distributed import DistributedSampler
+from apex import amp
 import pickle
 
 from warnings import filterwarnings
@@ -69,6 +72,7 @@ class Logger(object):
 
 def parse_args():
     parser = argparse.ArgumentParser()
+    parser.add_argument("--local_rank", type=int, default=-1, help="local_rank for distributed training on gpus")
     parser.add_argument('--root_dir', type=str, required=True)
     parser.add_argument('--model_name', type=str, default='resnet200d')
     parser.add_argument('--exp', type=str, required=True)
@@ -205,33 +209,33 @@ def macro_multilabel_auc(label, pred, target_cols):
 
 def train_func(train_loader, model, optimizer, criterion):
     model.train()
-    bar = tqdm(train_loader)
-    if args.use_amp:
-        scaler = torch.cuda.amp.GradScaler()
     losses = []
-    for batch_idx, (images, targets) in enumerate(bar):
-
-        images, targets = images.to(device), targets.to(device)
-
-        if args.use_amp:
-            with torch.cuda.amp.autocast():
-                logits = model(images)
-                loss = criterion(logits, targets)
-            scaler.scale(loss).backward()
-            scaler.step(optimizer)
-            scaler.update()
-            optimizer.zero_grad()
-        else:
+    if args.local_rank == 0:
+        bar = tqdm(train_loader)
+        for batch_idx, (images, targets) in enumerate(bar):
+            images, targets = images.to(device), targets.to(device)
             logits = model(images)
             loss = criterion(logits, targets)
-            loss.backward()
+            with amp.scale_loss(loss, optimizer) as scaled_loss:
+                scaled_loss.backward()
             optimizer.step()
             optimizer.zero_grad()
+            losses.append(loss.item())
+            smooth_loss = np.mean(losses[-30:])
+            if args.local_rank == 0:
+                bar.set_description(f'loss: {loss.item():.5f}, smth: {smooth_loss:.5f}')
 
-        losses.append(loss.item())
-        smooth_loss = np.mean(losses[-30:])
-
-        bar.set_description(f'loss: {loss.item():.5f}, smth: {smooth_loss:.5f}')
+    else:
+        for batch_idx, (images, targets) in enumerate(train_loader):
+            images, targets = images.to(device), targets.to(device)
+            logits = model(images)
+            loss = criterion(logits, targets)
+            with amp.scale_loss(loss, optimizer) as scaled_loss:
+                scaled_loss.backward()
+            optimizer.step()
+            optimizer.zero_grad()
+            losses.append(loss.item())
+            smooth_loss = np.mean(losses[-30:])
 
     loss_train = np.mean(losses)
     return loss_train
@@ -239,7 +243,8 @@ def train_func(train_loader, model, optimizer, criterion):
 
 def valid_func(valid_loader, model, optimizer, criterion, target_cols):
     model.eval()
-    bar = tqdm(valid_loader)
+    if args.local_rank == 0:
+        bar = tqdm(valid_loader)
 
     PROB = []
     TARGETS = []
@@ -255,7 +260,8 @@ def valid_func(valid_loader, model, optimizer, criterion, target_cols):
             loss = criterion(logits, targets)
             losses.append(loss.item())
             smooth_loss = np.mean(losses[-30:])
-            bar.set_description(f'loss: {loss.item():.5f}, smth: {smooth_loss:.5f}')
+            if args.local_rank == 0:
+                bar.set_description(f'loss: {loss.item():.5f}, smth: {smooth_loss:.5f}')
 
     PREDS = torch.cat(PREDS).cpu().numpy()
     TARGETS = torch.cat(TARGETS).cpu().numpy()
@@ -271,7 +277,8 @@ def main():
     #     os.system(f'rm {args.log_dir}/log.train_exp_{args.exp}_fold_{args.fold_id}.txt')
     # except:
     #     pass
-    logger.open(f'{args.log_dir}/log.train_exp_{args.exp}_fold_{args.fold_id}.txt', mode='a')
+    if args.local_rank == 0:
+        logger.open(f'{args.log_dir}/log.train_exp_{args.exp}_fold_{args.fold_id}.txt', mode='a')
 
 
 
@@ -285,18 +292,26 @@ def main():
     target_cols = df_train.iloc[:, 1:12].columns.tolist()
 
     #dataset = RANZERDataset(df_train, 'train', transform=args.transforms_train)
-
+    
+    # build model
+    if args.local_rank != 0:
+        torch.distributed.barrier()
+        
     if 'efficientnet' in args.model_name:
         model = RANZCREffiNet(args.model_name, out_dim=len(target_cols), pretrained=True)
     elif 'vit' in args.model_name:
         model = RANZCRViT(args.model_name, out_dim=len(target_cols), pretrained=True)
     else:
         model = RANZCRResNet200D(args.model_name, out_dim=len(target_cols), pretrained=True)
+        
+    if args.local_rank == 0:
+        torch.distributed.barrier()
+        
     model = model.to(device)
 
-    if DP:
-        model = nn.DataParallel(model)
-        print('Data Parallel')
+#     if DP:
+#         model = nn.DataParallel(model)
+#         print('Data Parallel')
 
     criterion = nn.BCEWithLogitsLoss()
     optimizer = optim.Adam(model.parameters(), lr=args.init_lr/args.warmup_factor)
@@ -304,6 +319,10 @@ def main():
     scheduler_warmup = GradualWarmupSchedulerV2(optimizer, multiplier=10,
                                                 total_epoch=args.warmup_epo,
                                                 after_scheduler=scheduler_cosine)
+    
+    model, optimizer = amp.initialize(model, optimizer, opt_level="O1",verbosity=0)
+    model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.local_rank], output_device=args.local_rank, find_unused_parameters=True)
+    
 
     df_train_this = df_train[df_train['fold'] != args.fold_id]
     df_valid_this = df_train[df_train['fold'] == args.fold_id]
@@ -311,24 +330,29 @@ def main():
     transforms_train, transforms_valid = get_transforms(args.image_size)
 
     dataset_train = RANZERDataset(df_train_this, 'train', target_cols, transform=transforms_train)
+    train_sampler = DistributedSampler(dataset_train)
+    
     dataset_valid = RANZERDataset(df_valid_this, 'valid', target_cols, transform=transforms_valid)
+    valid_sampler = DistributedSampler(dataset_valid)
 
     train_loader = torch.utils.data.DataLoader(dataset_train,
                                                batch_size=args.batch_size,
-                                               shuffle=True,
+                                               pin_memory=True,
+                                               sampler=train_sampler,
                                                num_workers=args.num_workers)
 
     valid_loader = torch.utils.data.DataLoader(dataset_valid,
                                                batch_size=args.valid_batch_size,
-                                               shuffle=False,
+                                               pin_memory=True,
+                                               sampler=valid_sampler,
                                                num_workers=args.num_workers)
 
     log = {}
     roc_auc_max = 0.
     loss_min = 99999
     not_improving = 0
-
-    logger.write(f"{'#'*20} start training fold : {args.fold_id}\n")
+    if args.local_rank == 0:
+        logger.write(f"{'#'*20} start training fold : {args.fold_id}\n")
     for epoch in range(1, args.n_epochs + 1):
         scheduler_warmup.step(epoch - 1)
         loss_train = train_func(train_loader, model, optimizer, criterion)
@@ -347,24 +371,25 @@ def main():
         #print(content)
         logger.write(content)
         not_improving += 1
+        if args.local_rank == 0:
+            if roc_auc > roc_auc_max:
+                logger.write(f'roc_auc_max ({roc_auc_max:.6f} --> {roc_auc:.6f}). Saving model ...\n')
+                torch.save(model.state_dict(), f'{args.model_dir}/{args.model_name}_fold{args.fold_id}_best_AUC_{roc_auc_max:.4f}.pth')
+                roc_auc_max = roc_auc
+                not_improving = 0
 
-        if roc_auc > roc_auc_max:
-            logger.write(f'roc_auc_max ({roc_auc_max:.6f} --> {roc_auc:.6f}). Saving model ...\n')
-            torch.save(model.state_dict(), f'{args.model_dir}/{args.model_name}_fold{args.fold_id}_best_AUC_{roc_auc_max:.4f}.pth')
-            roc_auc_max = roc_auc
-            not_improving = 0
+            if loss_valid < loss_min:
+                loss_min = loss_valid
+                torch.save(model.state_dict(), f'{args.model_dir}/{args.model_name}_fold{args.fold_id}_best_loss_{loss_min:.4f}.pth')
 
-        if loss_valid < loss_min:
-            loss_min = loss_valid
-            torch.save(model.state_dict(), f'{args.model_dir}/{args.model_name}_fold{args.fold_id}_best_loss_{loss_min:.4f}.pth')
+            if not_improving == args.early_stop:
+                logger.write('Early Stopping...')
+                break
 
-        if not_improving == args.early_stop:
-            logger.write('Early Stopping...')
-            break
-
-    torch.save(model.state_dict(), f'{args.model_dir}/{args.model_name}_fold{args.fold_id}_final.pth')
-    with open(f'{args.log_dir}/logs.pickle', 'wb') as handle:
-        pickle.dump(log, handle, protocol=pickle.HIGHEST_PROTOCOL)
+    if args.local_rank == 0:
+        torch.save(model.state_dict(), f'{args.model_dir}/{args.model_name}_fold{args.fold_id}_final.pth')
+        with open(f'{args.log_dir}/logs.pickle', 'wb') as handle:
+            pickle.dump(log, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
 
 if __name__ == "__main__":
@@ -375,6 +400,11 @@ if __name__ == "__main__":
     os.environ['CUDA_VISIBLE_DEVICES'] = args.CUDA_VISIBLE_DEVICES
 
     DP = len(os.environ['CUDA_VISIBLE_DEVICES']) > 1
+    print(args.local_rank)
+    
+    torch.cuda.set_device(args.local_rank)
+    device = torch.device("cuda", args.local_rank)
+    torch.distributed.init_process_group(backend="nccl")
 
-    device = torch.device('cuda')
+    #device = torch.device('cuda')
     main()
