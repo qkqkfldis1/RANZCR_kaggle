@@ -77,7 +77,7 @@ def parse_args():
     parser.add_argument('--fold_id', type=int, default=0)
     parser.add_argument('--image_size', type=int, default=256)
     parser.add_argument('--seed', type=int, default=42)
-    parser.add_argument('--init_lr', type=int, default=1e-4/3)
+    parser.add_argument('--init_lr', type=int, default=3e-4)
     parser.add_argument('--n_epochs', type=int, default=30)
     parser.add_argument('--warmup_factor', type=int, default=10)
     parser.add_argument('--warmup_epo', type=int, default=1)
@@ -117,25 +117,44 @@ class RANZCRResNet200D(nn.Module):
         output = self.fc(pooled_features)
         return output
 
+# class RANZCREffiNet(nn.Module):
+#     def __init__(self, model_name='efficientnet_b0', out_dim=11, pretrained=True):
+#         super().__init__()
+#         self.model = timm.create_model(model_name, pretrained=pretrained)
+#         n_features = self.model.classifier.in_features
+#         self.model.classifier = nn.Identity()
+#         self.model.global_pool = nn.Identity()
+#         self.pooling = nn.AdaptiveAvgPool2d(1)
+#         self.fc = nn.Linear(n_features, out_dim)
+
+#     def forward(self, x):
+#         bs = x.size(0)
+#         features = self.model.forward_features(x)
+#         pooled_features = self.pooling(features).view(bs, -1) # TODO Add harddrop
+#         output = self.fc(pooled_features)
+#         return output
+
 class RANZCREffiNet(nn.Module):
-    def __init__(self, model_name='efficientnet_b0', out_dim=11, pretrained=True):
+    def __init__(self, model_name='resnet200d', out_dim=11, pretrained=True):
         super().__init__()
         self.model = timm.create_model(model_name, pretrained=pretrained)
-        in_ch = self.model.classifier.in_features
-        #n_features = self.model.fc.in_features
-        self.model.classifier = nn.Identity()
+        n_features = self.model.classifier.in_features
         self.model.global_pool = nn.Identity()
-
+        self.model.classifier = nn.Identity()
         self.pooling = nn.AdaptiveAvgPool2d(1)
-        self.fc = nn.Linear(in_ch, out_dim)
+        self.fc = nn.Linear(n_features, out_dim)
 
     def forward(self, x):
         bs = x.size(0)
-        features = self.model.forward_features(x)
-        pooled_features = self.pooling(features).view(bs, -1) # TODO Add harddrop
+        #print(x.shape)
+        features = self.model(x)
+        #print(features.shape)
+        #a = self.model.extract_features(x)
+        #print(a.shape)
+        pooled_features = self.pooling(features).view(bs, -1)
         output = self.fc(pooled_features)
         return output
-
+    
 
 class GradualWarmupSchedulerV2(GradualWarmupScheduler):
     def __init__(self, optimizer, multiplier, total_epoch, after_scheduler=None):
