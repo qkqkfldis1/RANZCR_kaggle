@@ -264,6 +264,10 @@ def main():
         model = RANZCRResNet200D(args.model_name, out_dim=len(target_cols), pretrained=True)
     model = model.to(device)
 
+    if DP:
+        model = nn.DataParallel(model)
+        print('Data Parallel')
+
     criterion = nn.BCEWithLogitsLoss()
     optimizer = optim.Adam(model.parameters(), lr=args.init_lr/args.warmup_factor)
     scheduler_cosine = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, args.n_epochs, eta_min=1e-7)
@@ -339,6 +343,8 @@ if __name__ == "__main__":
     os.makedirs(args.model_dir, exist_ok=True)
     os.makedirs(args.log_dir, exist_ok=True)
     os.environ['CUDA_VISIBLE_DEVICES'] = args.CUDA_VISIBLE_DEVICES
+
+    DP = len(os.environ['CUDA_VISIBLE_DEVICES']) > 1
 
     device = torch.device('cuda')
     main()
