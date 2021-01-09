@@ -155,6 +155,16 @@ class RANZCREffiNet(nn.Module):
         output = self.fc(pooled_features)
         return output
     
+class RANZCRViT(nn.Module):
+    def __init__(self, model_name='resnet200d', out_dim=11, pretrained=True):
+        super().__init__()
+        self.model = timm.create_model(model_name, pretrained=pretrained)
+        self.model.head = nn.Linear(self.model.head.in_features, out_dim)
+
+    def forward(self, x):
+        x = self.model(x)
+        return x
+    
 
 class GradualWarmupSchedulerV2(GradualWarmupScheduler):
     def __init__(self, optimizer, multiplier, total_epoch, after_scheduler=None):
@@ -279,6 +289,8 @@ def main():
 
     if 'efficientnet' in args.model_name:
         model = RANZCREffiNet(args.model_name, out_dim=len(target_cols), pretrained=True)
+    elif 'vit' in args.model_name:
+        model = RANZCRViT(args.model_name, out_dim=len(target_cols), pretrained=True)
     else:
         model = RANZCRResNet200D(args.model_name, out_dim=len(target_cols), pretrained=True)
     model = model.to(device)

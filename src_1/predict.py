@@ -7,12 +7,10 @@ batch_size = 1
 image_size = 512
 tta = True
 submit = True
-enet_type = ['efficientnet_b3'] * 5
-model_path = ['./weights_1/efficientnet_b3_fold0_best_AUC_0.9367.pth',
-              './weights_1/efficientnet_b3_fold1_best_AUC_0.9443.pth',
-              './weights_1/efficientnet_b3_fold2_best_AUC_0.9442.pth',
-              './weights_1/efficientnet_b3_fold3_best_AUC_0.9423.pth',
-              './weights_1/efficientnet_b3_fold4_best_AUC_0.9423.pth']
+enet_type = ['efficientnet_b5'] * 3
+model_path = ['./weights/tf_efficientnet_b5_fold4_best_AUC_0.9373.pth',
+              './weights/tf_efficientnet_b5_fold1_best_AUC_0.9376.pth',
+              './weights/tf_efficientnet_b5_fold2_best_AUC_0.9408.pth',]
 # you can save GPU quota using fast sub attached in the last markdown file
 fast_sub = False
 fast_sub_path = '../input/xxxxxx/your_submission.csv'
@@ -171,8 +169,8 @@ for i in range(len(enet_type)):
         print('resnet200d loaded')
         model = RANZCRResNet200D(enet_type[i], out_dim=len(target_cols), pretrained=False)
         model = model.to(device)
-    elif enet_type[i] == 'efficientnet_b3':
-        print('efficientnet_b3 loaded')
+    elif 'efficientnet' in enet_type[i]:
+        print('efficientnet loaded')
         model = RANZCREffiNet(enet_type[i], out_dim=len(target_cols), pretrained=False)
         model = model.to(device)
 
