@@ -265,7 +265,7 @@ def main():
     model = model.to(device)
 
     if DP:
-        model = nn.DataParallel(model, output_device=1)
+        model = nn.DataParallel(model)
         print('Data Parallel')
 
     criterion = nn.BCEWithLogitsLoss()
