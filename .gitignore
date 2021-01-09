@@ -1,3 +1,7 @@
 *.pt
 *.pth
 input/
+logs/
+logs_1
+weights/
+weights_1/
