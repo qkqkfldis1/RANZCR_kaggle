@@ -40,7 +40,7 @@
       <paths name="youhanlee@147.43.114.29:9875">
         <serverdata>
           <mappings>
-            <mapping deploy="/home/youhanlee/project/RANZCR_kaggle" local="$PROJECT_DIR$" />
+            <mapping local="$PROJECT_DIR$" web="/" />
           </mappings>
         </serverdata>
       </paths>
@@ -55,6 +55,13 @@
         <serverdata>
           <mappings>
             <mapping local="$PROJECT_DIR$" web="/" />
+          </mappings>
+        </serverdata>
+      </paths>
+      <paths name="youhanlee@147.43.114.29:9875 (3)">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/home/youhanlee/project/RANZCR_kaggle" local="$PROJECT_DIR$" />
           </mappings>
         </serverdata>
       </paths>

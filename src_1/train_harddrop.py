@@ -139,6 +139,11 @@ class RANZCREffiNet(nn.Module):
     def __init__(self, model_name='resnet200d', out_dim=11, pretrained=True):
         super().__init__()
         self.model = timm.create_model(model_name, pretrained=pretrained)
+
+        self.dropouts = nn.ModuleList([
+            nn.Dropout(0.5) for _ in range(5)
+        ])
+
         n_features = self.model.classifier.in_features
         self.model.global_pool = nn.Identity()
         self.model.classifier = nn.Identity()
@@ -147,15 +152,16 @@ class RANZCREffiNet(nn.Module):
 
     def forward(self, x):
         bs = x.size(0)
-        #print(x.shape)
         features = self.model(x)
-        #print(features.shape)
-        #a = self.model.extract_features(x)
-        #print(a.shape)
         pooled_features = self.pooling(features).view(bs, -1)
-        output = self.fc(pooled_features)
+        for i, dropout in enumerate(self.dropouts):
+            if i == 0:
+                output = self.fc(dropout(pooled_features))
+            else:
+                output += self.fc(dropout(pooled_features))
+        output /= len(self.dropouts)
         return output
-    
+
 class RANZCRViT(nn.Module):
     def __init__(self, model_name='resnet200d', out_dim=11, pretrained=True):
         super().__init__()

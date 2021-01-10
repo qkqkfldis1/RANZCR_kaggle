@@ -345,20 +345,20 @@ def main():
 
         if roc_auc > roc_auc_max:
             logger.write(f'roc_auc_max ({roc_auc_max:.6f} --> {roc_auc:.6f}). Saving model ...\n')
-            torch.save(model.state_dict(), f'{args.model_dir}_pre/{args.model_name}_fold{args.fold_id}_pre_best_AUC_{roc_auc_max:.4f}.pth')
+            torch.save(model.state_dict(), f'{args.model_dir}/{args.model_name}_fold{args.fold_id}_pre_best_AUC.pth')
             roc_auc_max = roc_auc
             not_improving = 0
 
         if loss_valid < loss_min:
             loss_min = loss_valid
-            torch.save(model.state_dict(), f'{args.model_dir}_pre/{args.model_name}_fold{args.fold_id}_pre_best_loss_{loss_min:.4f}.pth')
+            torch.save(model.state_dict(), f'{args.model_dir}/{args.model_name}_fold{args.fold_id}_pre_best_loss.pth')
 
         if not_improving == args.early_stop:
             logger.write('Early Stopping...')
             break
 
     torch.save(model.state_dict(), f'{args.model_dir}_pre/{args.model_name}_fold{args.fold_id}_pre_final.pth')
-    with open(f'{args.log_dir}_pre/logs.pickle', 'wb') as handle:
+    with open(f'{args.log_dir}/logs.pickle', 'wb') as handle:
         pickle.dump(log, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
 
