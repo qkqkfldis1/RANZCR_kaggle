@@ -46,35 +46,19 @@ def get_transforms(image_size):
     return transforms_train, transforms_valid
 
 
+COLOR_MAP = {'ETT - Abnormal': (255, 0, 0),
+             'ETT - Borderline': (0, 255, 0),
+             'ETT - Normal': (0, 0, 255),
+             'NGT - Abnormal': (255, 255, 0),
+             'NGT - Borderline': (255, 0, 255),
+             'NGT - Incompletely Imaged': (0, 255, 255),
+             'NGT - Normal': (128, 0, 0),
+             'CVC - Abnormal': (0, 128, 0),
+             'CVC - Borderline': (0, 0, 128),
+             'CVC - Normal': (128, 128, 0),
+             'Swan Ganz Catheter Present': (128, 0, 128),
+            }
 
-
-class RANZERDataset(Dataset):
-    def __init__(self, df, mode, target_cols, transform=None):
-
-        self.df = df.reset_index(drop=True)
-        self.mode = mode
-        self.transform = transform
-        self.labels = df[target_cols].values
-
-    def __len__(self):
-        return len(self.df)
-
-    def __getitem__(self, index):
-        row = self.df.loc[index]
-        img = cv2.imread(row.file_path)
-        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-
-        if self.transform is not None:
-            res = self.transform(image=img)
-            img = res['image']
-
-        img = img.astype(np.float32)
-        img = img.transpose(2, 0, 1)
-        label = torch.tensor(self.labels[index]).float()
-        if self.mode == 'test':
-            return torch.tensor(img).float()
-        else:
-            return torch.tensor(img).float(), label
 
 COLOR_MAP = {'ETT - Abnormal': (255, 0, 0),
              'ETT - Borderline': (0, 255, 0),
