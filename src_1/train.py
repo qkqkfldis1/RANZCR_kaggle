@@ -76,7 +76,7 @@ def parse_args():
     parser.add_argument('--fold_id', type=int, default=0)
     parser.add_argument('--image_size', type=int, default=256)
     parser.add_argument('--seed', type=int, default=42)
-    parser.add_argument('--init_lr', type=int, default=3e-4)
+    parser.add_argument('--init_lr', type=int, default=1e-3)
     parser.add_argument('--n_epochs', type=int, default=30)
     parser.add_argument('--warmup_factor', type=int, default=10)
     parser.add_argument('--warmup_epo', type=int, default=1)
