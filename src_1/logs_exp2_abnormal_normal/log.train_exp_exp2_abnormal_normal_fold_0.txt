@@ -1,0 +1,3 @@
+#################### start training fold : 0
+Tue Jan 12 20:47:09 2021 Fold 0, Epoch 1, lr: 0.0001000, loss_train: 0.30393, loss_valid: 0.25302, roc_auc: 0.793886.
+roc_auc_max (0.000000 --> 0.793886). Saving model ...

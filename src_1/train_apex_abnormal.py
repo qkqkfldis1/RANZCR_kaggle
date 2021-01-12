@@ -1,4 +1,3 @@
-
 import pandas as pd
 import numpy as np
 import sys
@@ -29,9 +28,10 @@ import seaborn as sns
 from pylab import rcParams
 import timm
 from datasets import get_transforms, RANZERDataset
-from torch.utils.data.distributed import DistributedSampler
-from apex import amp
 import pickle
+
+import apex
+from apex import amp
 
 from warnings import filterwarnings
 filterwarnings("ignore")
@@ -72,7 +72,6 @@ class Logger(object):
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--local_rank", type=int, default=-1, help="local_rank for distributed training on gpus")
     parser.add_argument('--root_dir', type=str, required=True)
     parser.add_argument('--model_name', type=str, default='resnet200d')
     parser.add_argument('--exp', type=str, required=True)
@@ -81,11 +80,11 @@ def parse_args():
     parser.add_argument('--image_size', type=int, default=256)
     parser.add_argument('--seed', type=int, default=42)
     parser.add_argument('--init_lr', type=int, default=1e-3)
-    parser.add_argument('--n_epochs', type=int, default=40)
+    parser.add_argument('--n_epochs', type=int, default=30)
     parser.add_argument('--warmup_factor', type=int, default=10)
     parser.add_argument('--warmup_epo', type=int, default=1)
     parser.add_argument('--num_workers', type=int, default=4)
-    parser.add_argument('--early_stop', type=int, default=10)
+    parser.add_argument('--early_stop', type=int, default=5)
 
     parser.add_argument('--batch_size', type=int, default=12)
     parser.add_argument('--valid_batch_size', type=int, default=12)
@@ -106,18 +105,28 @@ def parse_args():
 class RANZCRResNet200D(nn.Module):
     def __init__(self, model_name='resnet200d', out_dim=11, pretrained=True):
         super().__init__()
-        self.model = timm.create_model(model_name, pretrained=pretrained)
+        self.model = timm.create_model(model_name, pretrained=False)
+        pretrained_path = './resnet200d_ra2-bdba9bf9.pth'
+        self.model.load_state_dict(torch.load(pretrained_path))
         n_features = self.model.fc.in_features
         self.model.global_pool = nn.Identity()
         self.model.fc = nn.Identity()
         self.pooling = nn.AdaptiveAvgPool2d(1)
         self.fc = nn.Linear(n_features, out_dim)
+        self.dropouts = nn.ModuleList([
+            nn.Dropout(0.5) for _ in range(5)
+        ])
 
     def forward(self, x):
         bs = x.size(0)
         features = self.model(x)
         pooled_features = self.pooling(features).view(bs, -1)
-        output = self.fc(pooled_features)
+        for i, dropout in enumerate(self.dropouts):
+            if i == 0:
+                output = self.fc(dropout(pooled_features))
+            else:
+                output += self.fc(dropout(pooled_features))
+        output /= len(self.dropouts)
         return output
 
 # class RANZCREffiNet(nn.Module):
@@ -141,10 +150,10 @@ class RANZCREffiNet(nn.Module):
     def __init__(self, model_name='resnet200d', out_dim=11, pretrained=True):
         super().__init__()
         self.model = timm.create_model(model_name, pretrained=pretrained)
+
         self.dropouts = nn.ModuleList([
             nn.Dropout(0.5) for _ in range(5)
         ])
-        
         n_features = self.model.classifier.in_features
         self.model.global_pool = nn.Identity()
         self.model.classifier = nn.Identity()
@@ -206,7 +215,7 @@ def seed_everything(seed):
 
 def macro_multilabel_auc(label, pred, target_cols):
     aucs = []
-    for i in range(len(target_cols)):
+    for i in range(len(target_cols[:11])):
         aucs.append(roc_auc_score(label[:, i], pred[:, i]))
     print(np.round(aucs, 4))
     return np.mean(aucs)
@@ -214,33 +223,30 @@ def macro_multilabel_auc(label, pred, target_cols):
 
 def train_func(train_loader, model, optimizer, criterion):
     model.train()
+    bar = tqdm(train_loader)
+    if args.use_amp:
+        scaler = torch.cuda.amp.GradScaler()
     losses = []
-    if args.local_rank == 0:
-        bar = tqdm(train_loader)
-        for batch_idx, (images, targets) in enumerate(bar):
-            images, targets = images.to(device), targets.to(device)
-            logits = model(images)
-            loss = criterion(logits, targets)
-            with amp.scale_loss(loss, optimizer) as scaled_loss:
-                scaled_loss.backward()
-            optimizer.step()
-            optimizer.zero_grad()
-            losses.append(loss.item())
-            smooth_loss = np.mean(losses[-30:])
-            if args.local_rank == 0:
-                bar.set_description(f'loss: {loss.item():.5f}, smth: {smooth_loss:.5f}')
+    for batch_idx, (images, targets) in enumerate(bar):
+        images, targets = images.to(device), targets.to(device)
+        optimizer.zero_grad()
 
-    else:
-        for batch_idx, (images, targets) in enumerate(train_loader):
-            images, targets = images.to(device), targets.to(device)
+        if args.use_amp:
             logits = model(images)
             loss = criterion(logits, targets)
             with amp.scale_loss(loss, optimizer) as scaled_loss:
                 scaled_loss.backward()
             optimizer.step()
-            optimizer.zero_grad()
-            losses.append(loss.item())
-            smooth_loss = np.mean(losses[-30:])
+        else:
+            logits = model(images)
+            loss = criterion(logits, targets)
+            loss.backward()
+            optimizer.step()
+
+        losses.append(loss.item())
+        smooth_loss = np.mean(losses[-30:])
+
+        bar.set_description(f'loss: {loss.item():.5f}, smth: {smooth_loss:.5f}')
 
     loss_train = np.mean(losses)
     return loss_train
@@ -248,41 +254,26 @@ def train_func(train_loader, model, optimizer, criterion):
 
 def valid_func(valid_loader, model, optimizer, criterion, target_cols):
     model.eval()
-
+    bar = tqdm(valid_loader)
 
     PROB = []
     TARGETS = []
     losses = []
     PREDS = []
-    
-    if args.local_rank == 0:
-        bar = tqdm(valid_loader)
-        with torch.no_grad():
-            for batch_idx, (images, targets) in enumerate(bar):
-                images, targets = images.to(device), targets.to(device)
-                logits = model(images)
-                PREDS += [logits.sigmoid()]
-                TARGETS += [targets.detach().cpu()]
-                loss = criterion(logits, targets)
-                losses.append(loss.item())
-                smooth_loss = np.mean(losses[-30:])
-                bar.set_description(f'loss: {loss.item():.5f}, smth: {smooth_loss:.5f}')
-    else:
-        with torch.no_grad():
-            for batch_idx, (images, targets) in enumerate(valid_loader):
-                images, targets = images.to(device), targets.to(device)
-                logits = model(images)
-                PREDS += [logits.sigmoid()]
-                TARGETS += [targets.detach().cpu()]
-                loss = criterion(logits, targets)
-                losses.append(loss.item())
-                smooth_loss = np.mean(losses[-30:])
-                #if args.local_rank == 0:
-                #    bar.set_description(f'loss: {loss.item():.5f}, smth: {smooth_loss:.5f}')
 
+    with torch.no_grad():
+        for batch_idx, (images, targets) in enumerate(bar):
+            images, targets = images.to(device), targets.to(device)
+            logits = model(images)
+            PREDS += [logits.sigmoid()]
+            TARGETS += [targets.detach().cpu()]
+            loss = criterion(logits, targets)
+            losses.append(loss.item())
+            smooth_loss = np.mean(losses[-30:])
+            bar.set_description(f'loss: {loss.item():.5f}, smth: {smooth_loss:.5f}')
 
-    PREDS = torch.cat(PREDS).cpu().numpy()
-    TARGETS = torch.cat(TARGETS).cpu().numpy()
+    PREDS = torch.cat(PREDS).cpu().numpy()[:, :11]
+    TARGETS = torch.cat(TARGETS).cpu().numpy()[:, :11]
     # roc_auc = roc_auc_score(TARGETS.reshape(-1), PREDS.reshape(-1))
     roc_auc = macro_multilabel_auc(TARGETS, PREDS, target_cols)
     loss_valid = np.mean(losses)
@@ -295,26 +286,27 @@ def main():
     #     os.system(f'rm {args.log_dir}/log.train_exp_{args.exp}_fold_{args.fold_id}.txt')
     # except:
     #     pass
-    if args.local_rank == 0:
-        logger.open(f'{args.log_dir}/log.train_exp_{args.exp}_fold_{args.fold_id}.txt', mode='a')
-
-
+    logger.open(f'{args.log_dir}/log.train_exp_{args.exp}_fold_{args.fold_id}.txt', mode='a')
 
     data_dir = f'{args.root_dir}/input/ranzcr-clip-catheter-line-classification/train'
 
     df_train = pd.read_csv(f'{args.root_dir}/input/how-to-properly-split-folds/train_folds.csv')
+    Abnormal_cols = [c for c in df_train.columns if 'Abnormal' in c]
+    normal_cols = [c for c in df_train.columns if 'Normal' in c]
+    df_train['abnormal'] =  (df_train[Abnormal_cols].sum(1) > 0).astype(int)
+    df_train['normal'] =  (df_train[normal_cols].sum(1) > 0).astype(int)
     df_train['file_path'] = df_train.StudyInstanceUID.apply(lambda x: os.path.join(data_dir, f'{x}.jpg'))
 
     if args.debug:
         df_train = df_train.sample(frac=0.1)
-    target_cols = df_train.iloc[:, 1:12].columns.tolist()
+    #target_cols = df_train.iloc[:, 1:12].columns.tolist()
+    target_cols = ['ETT - Abnormal', 'ETT - Borderline',
+           'ETT - Normal', 'NGT - Abnormal', 'NGT - Borderline',
+           'NGT - Incompletely Imaged', 'NGT - Normal', 'CVC - Abnormal',
+           'CVC - Borderline', 'CVC - Normal', 'Swan Ganz Catheter Present', 'abnormal', 'normal']
 
     #dataset = RANZERDataset(df_train, 'train', transform=args.transforms_train)
-    
-    # build model
-    if args.local_rank != 0:
-        torch.distributed.barrier()
-        
+
     if 'efficientnet' in args.model_name:
         model = RANZCREffiNet(args.model_name, out_dim=len(target_cols), pretrained=True)
     elif 'vit' in args.model_name:
@@ -322,14 +314,12 @@ def main():
     else:
         model = RANZCRResNet200D(args.model_name, out_dim=len(target_cols), pretrained=True)
         
-    if args.local_rank == 0:
-        torch.distributed.barrier()
         
+    if DP:
+        model = apex.parallel.convert_syncbn_model(model)
     model = model.to(device)
 
-#     if DP:
-#         model = nn.DataParallel(model)
-#         print('Data Parallel')
+
 
     criterion = nn.BCEWithLogitsLoss()
     optimizer = optim.Adam(model.parameters(), lr=args.init_lr/args.warmup_factor)
@@ -338,8 +328,10 @@ def main():
                                                 total_epoch=args.warmup_epo,
                                                 after_scheduler=scheduler_cosine)
     
-    model, optimizer = amp.initialize(model, optimizer, opt_level="O1",verbosity=0)
-    model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.local_rank], output_device=args.local_rank, find_unused_parameters=True)
+    if args.use_amp:
+        model, optimizer = amp.initialize(model, optimizer, opt_level="O1")
+    if DP:
+        model = nn.DataParallel(model)
     
 
     df_train_this = df_train[df_train['fold'] != args.fold_id]
@@ -348,29 +340,24 @@ def main():
     transforms_train, transforms_valid = get_transforms(args.image_size)
 
     dataset_train = RANZERDataset(df_train_this, 'train', target_cols, transform=transforms_train)
-    train_sampler = DistributedSampler(dataset_train)
-    
     dataset_valid = RANZERDataset(df_valid_this, 'valid', target_cols, transform=transforms_valid)
-    valid_sampler = DistributedSampler(dataset_valid)
 
     train_loader = torch.utils.data.DataLoader(dataset_train,
                                                batch_size=args.batch_size,
-                                               pin_memory=True,
-                                               sampler=train_sampler,
+                                               shuffle=True,
                                                num_workers=args.num_workers)
 
     valid_loader = torch.utils.data.DataLoader(dataset_valid,
                                                batch_size=args.valid_batch_size,
-                                               pin_memory=True,
-                                               sampler=valid_sampler,
+                                               shuffle=False,
                                                num_workers=args.num_workers)
 
     log = {}
     roc_auc_max = 0.
     loss_min = 99999
     not_improving = 0
-    if args.local_rank == 0:
-        logger.write(f"{'#'*20} start training fold : {args.fold_id}\n")
+
+    logger.write(f"{'#'*20} start training fold : {args.fold_id}\n")
     for epoch in range(1, args.n_epochs + 1):
         scheduler_warmup.step(epoch - 1)
         loss_train = train_func(train_loader, model, optimizer, criterion)
@@ -387,29 +374,26 @@ def main():
                                        f'loss_valid: {loss_valid:.5f}, ' \
                                        f'roc_auc: {roc_auc:.6f}.\n'
         #print(content)
-        #logger.write(content)
+        logger.write(content)
         not_improving += 1
-        if args.local_rank == 0:
-            print(content)
-            logger.write(content)
-            if roc_auc > roc_auc_max:
-                logger.write(f'roc_auc_max ({roc_auc_max:.6f} --> {roc_auc:.6f}). Saving model ...\n')
-                torch.save(model.state_dict(), f'{args.model_dir}/{args.model_name}_fold{args.fold_id}_best_AUC_{roc_auc_max:.4f}.pth')
-                roc_auc_max = roc_auc
-                not_improving = 0
 
-            if loss_valid < loss_min:
-                loss_min = loss_valid
-                torch.save(model.state_dict(), f'{args.model_dir}/{args.model_name}_fold{args.fold_id}_best_loss_{loss_min:.4f}.pth')
+        if roc_auc > roc_auc_max:
+            logger.write(f'roc_auc_max ({roc_auc_max:.6f} --> {roc_auc:.6f}). Saving model ...\n')
+            torch.save(model.state_dict(), f'{args.model_dir}/{args.model_name}_fold{args.fold_id}_best_AUC_{roc_auc_max:.4f}.pth')
+            roc_auc_max = roc_auc
+            not_improving = 0
 
-            if not_improving == args.early_stop:
-                logger.write('Early Stopping...')
-                break
+        if loss_valid < loss_min:
+            loss_min = loss_valid
+            torch.save(model.state_dict(), f'{args.model_dir}/{args.model_name}_fold{args.fold_id}_best_loss_{loss_min:.4f}.pth')
 
-    if args.local_rank == 0:
-        torch.save(model.state_dict(), f'{args.model_dir}/{args.model_name}_fold{args.fold_id}_final.pth')
-        with open(f'{args.log_dir}/logs.pickle', 'wb') as handle:
-            pickle.dump(log, handle, protocol=pickle.HIGHEST_PROTOCOL)
+        if not_improving == args.early_stop:
+            logger.write('Early Stopping...')
+            break
+
+    torch.save(model.state_dict(), f'{args.model_dir}/{args.model_name}_fold{args.fold_id}_final.pth')
+    with open(f'{args.log_dir}/logs.pickle', 'wb') as handle:
+        pickle.dump(log, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
 
 if __name__ == "__main__":
@@ -420,11 +404,6 @@ if __name__ == "__main__":
     os.environ['CUDA_VISIBLE_DEVICES'] = args.CUDA_VISIBLE_DEVICES
 
     DP = len(os.environ['CUDA_VISIBLE_DEVICES']) > 1
-    print(args.local_rank)
-    
-    torch.cuda.set_device(args.local_rank)
-    device = torch.device("cuda", args.local_rank)
-    torch.distributed.init_process_group(backend="nccl")
 
-    #device = torch.device('cuda')
+    device = torch.device('cuda')
     main()

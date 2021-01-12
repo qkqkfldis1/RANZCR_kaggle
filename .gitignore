@@ -6,3 +6,4 @@ logs_1
 weights/
 weights_1/
 *.csv
+*.zip

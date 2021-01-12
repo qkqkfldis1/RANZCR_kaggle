@@ -79,7 +79,7 @@ def parse_args():
     parser.add_argument('--fold_id', type=int, default=0)
     parser.add_argument('--image_size', type=int, default=256)
     parser.add_argument('--seed', type=int, default=42)
-    parser.add_argument('--init_lr', type=int, default=3e-4)
+    parser.add_argument('--init_lr', type=int, default=1e-3)
     parser.add_argument('--n_epochs', type=int, default=30)
     parser.add_argument('--warmup_factor', type=int, default=10)
     parser.add_argument('--warmup_epo', type=int, default=1)
@@ -105,18 +105,28 @@ def parse_args():
 class RANZCRResNet200D(nn.Module):
     def __init__(self, model_name='resnet200d', out_dim=11, pretrained=True):
         super().__init__()
-        self.model = timm.create_model(model_name, pretrained=pretrained)
+        self.model = timm.create_model(model_name, pretrained=False)
+        pretrained_path = './resnet200d_ra2-bdba9bf9.pth'
+        self.model.load_state_dict(torch.load(pretrained_path))
         n_features = self.model.fc.in_features
         self.model.global_pool = nn.Identity()
         self.model.fc = nn.Identity()
         self.pooling = nn.AdaptiveAvgPool2d(1)
         self.fc = nn.Linear(n_features, out_dim)
+        self.dropouts = nn.ModuleList([
+            nn.Dropout(0.5) for _ in range(5)
+        ])
 
     def forward(self, x):
         bs = x.size(0)
         features = self.model(x)
         pooled_features = self.pooling(features).view(bs, -1)
-        output = self.fc(pooled_features)
+        for i, dropout in enumerate(self.dropouts):
+            if i == 0:
+                output = self.fc(dropout(pooled_features))
+            else:
+                output += self.fc(dropout(pooled_features))
+        output /= len(self.dropouts)
         return output
 
 # class RANZCREffiNet(nn.Module):
@@ -140,6 +150,10 @@ class RANZCREffiNet(nn.Module):
     def __init__(self, model_name='resnet200d', out_dim=11, pretrained=True):
         super().__init__()
         self.model = timm.create_model(model_name, pretrained=pretrained)
+
+        self.dropouts = nn.ModuleList([
+            nn.Dropout(0.5) for _ in range(5)
+        ])
         n_features = self.model.classifier.in_features
         self.model.global_pool = nn.Identity()
         self.model.classifier = nn.Identity()
@@ -148,13 +162,14 @@ class RANZCREffiNet(nn.Module):
 
     def forward(self, x):
         bs = x.size(0)
-        #print(x.shape)
         features = self.model(x)
-        #print(features.shape)
-        #a = self.model.extract_features(x)
-        #print(a.shape)
         pooled_features = self.pooling(features).view(bs, -1)
-        output = self.fc(pooled_features)
+        for i, dropout in enumerate(self.dropouts):
+            if i == 0:
+                output = self.fc(dropout(pooled_features))
+            else:
+                output += self.fc(dropout(pooled_features))
+        output /= len(self.dropouts)
         return output
     
 class RANZCRViT(nn.Module):

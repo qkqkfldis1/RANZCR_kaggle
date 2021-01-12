@@ -7,10 +7,13 @@ batch_size = 1
 image_size = 512
 tta = True
 submit = True
-enet_type = ['efficientnet_b5'] * 3
-model_path = ['./weights/tf_efficientnet_b5_fold4_best_AUC_0.9373.pth',
-              './weights/tf_efficientnet_b5_fold1_best_AUC_0.9376.pth',
-              './weights/tf_efficientnet_b5_fold2_best_AUC_0.9408.pth',]
+enet_type = ['resnet200d'] * 5
+model_path = ['./weights_exp1/resnet200d_fold0_best_AUC_0.9457.pth',
+              './weights_exp1/resnet200d_fold1_best_AUC_0.9527.pth',
+              './weights_exp1/resnet200d_fold2_best_AUC_0.9530.pth',
+             './weights_exp1/resnet200d_fold3_best_AUC_0.9528.pth',
+             './weights_exp1/resnet200d_fold4_best_AUC_0.9499.pth']
+sub_name = 'exp_resnet200d_baseline'
 # you can save GPU quota using fast sub attached in the last markdown file
 fast_sub = False
 fast_sub_path = '../input/xxxxxx/your_submission.csv'
@@ -173,8 +176,16 @@ for i in range(len(enet_type)):
         print('efficientnet loaded')
         model = RANZCREffiNet(enet_type[i], out_dim=len(target_cols), pretrained=False)
         model = model.to(device)
-
-    model.load_state_dict(torch.load(model_path[i]))
+        
+    # remove module
+    from collections import OrderedDict
+    new_state_dict = OrderedDict()
+    state_dict = torch.load(model_path[i])
+    for k, v in state_dict.items():
+        name = k[7:] # remove `module.`
+        new_state_dict[name] = v
+    model.load_state_dict(new_state_dict)
+    
     if tta:
         test_preds += [tta_inference_func(test_loader)]
     else:
@@ -182,6 +193,6 @@ for i in range(len(enet_type)):
 
 submission = pd.read_csv('../input/ranzcr-clip-catheter-line-classification/sample_submission.csv')
 submission[target_cols] = np.mean(test_preds, axis=0)
-submission.to_csv(f'./submission_{enet_type[0]}.csv', index=False)
+submission.to_csv(f'./submission_{enet_type[0]}_{sub_name}.csv', index=False)
 #else:
 #    pd.read_csv('../input/ranzcr-clip-catheter-line-classification/sample_submission.csv').to_csv('submission.csv', index=False)
