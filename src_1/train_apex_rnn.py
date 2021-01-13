@@ -129,73 +129,6 @@ class RANZCRResNet200D(nn.Module):
         output /= len(self.dropouts)
         return output
 
-class PositionEncode(nn.Module):
-    def __init__(self, dim, length=174):
-        super(PositionEncode, self).__init__()
-        position = torch.zeros(length,dim)
-        p = torch.arange(0, length, dtype=torch.float).unsqueeze(1)
-        div = torch.exp(torch.arange(0, dim, 2).float() * (-math.log(10000.0) / dim))
-        position[:,0::2] = torch.sin(p * div)
-        position[:,1::2] = torch.cos(p * div)
-        #position = position.transpose(0, 1).reshape(1,dim,length) #.contiguous()
-        position = position.reshape(length, 1, dim) #.contiguous()
-        self.register_buffer('position', position)
-
-        #self.position = nn.Parameter( torch.randn(1, dim, length) ) #random
-
-    def forward(self, x):
-        length, batch_size, _ = x.shape
-        position = self.position.repeat(1, batch_size, 1)
-        position = position[:length, :, :, ].contiguous()
-        return position
-
-class RANZCRResNet200D(nn.Module):
-    def __init__(self, model_name='resnet200d', out_dim=11, pretrained=True):
-        super().__init__()
-        self.model = timm.create_model(model_name, pretrained=False)
-        pretrained_path = './resnet200d_ra2-bdba9bf9.pth'
-        self.model.load_state_dict(torch.load(pretrained_path))
-        self.n_features = self.model.fc.in_features
-        self.model.global_pool = nn.Identity()
-        self.model.fc = nn.Identity()
-        self.pooling = nn.AdaptiveAvgPool2d(1)
-        self.fc = nn.Linear(2048, out_dim)
-        self.dropouts = nn.ModuleList([
-            nn.Dropout(0.5) for _ in range(5)
-        ])
-        #self.postition = PositionEncode(node_hidden_channels)
-        self.transformer = torch.nn.TransformerEncoder(
-            torch.nn.TransformerEncoderLayer(2048, 8, 2048, dropout=0.2, activation='relu'),
-            12
-        )
-
-
-    def forward(self, x):
-        bs = x.size(0)
-        features = self.model(x)
-        features = features.view(bs, self.n_features, -1)
-        #print(features.shape)
-        features = features.permute(0, 2, 1)
-        #print(features.shape)
-        features = features.permute(1, 0, 2).contiguous()  # length, batch_size, 128
-        #pos = self.postition(x)
-        features = self.transformer(features)
-        #print(features.shape)
-        features = features.permute(1, 0, 2).contiguous()
-        #features = self.rnn2(features)
-        features = self.fc(features)
-        #print(features.shape)
-        output = features.mean(1)
-        #print(output.shape)
-        # pooled_features = self.pooling(features).view(bs, -1)
-        # for i, dropout in enumerate(self.dropouts):
-        #     if i == 0:
-        #         output = self.fc(dropout(pooled_features))
-        #     else:
-        #         output += self.fc(dropout(pooled_features))
-        # output /= len(self.dropouts)
-        return output
-
 # class RANZCREffiNet(nn.Module):
 #     def __init__(self, model_name='efficientnet_b0', out_dim=11, pretrained=True):
 #         super().__init__()
@@ -209,7 +142,7 @@ class RANZCRResNet200D(nn.Module):
 #     def forward(self, x):
 #         bs = x.size(0)
 #         features = self.model.forward_features(x)
-#         pooled_features = self.pooling(features).view(bs, -1)
+#         pooled_features = self.pooling(features).view(bs, -1) # TODO Add harddrop
 #         output = self.fc(pooled_features)
 #         return output
 
