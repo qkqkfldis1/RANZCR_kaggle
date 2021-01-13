@@ -20,3 +20,7 @@
 # Reference
 
 - https://github.com/GuanshuoXu/RSNA-STR-Pulmonary-Embolism-Detection/blob/main/trainall/seresnext50/train0.py
+
+# 생각들
+- 관이 제대로 삽입되어 있는 지 보려면, 몸속 장기들의 위치에 대한 정보도 같이 들어가줘야 판단하기 좋은거 아닐까
+    - Lung mask 인풋으로..?

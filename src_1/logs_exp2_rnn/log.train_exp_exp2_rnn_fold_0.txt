@@ -1,0 +1,38 @@
+#################### start training fold : 0
+#################### start training fold : 0
+#################### start training fold : 0
+#################### start training fold : 0
+#################### start training fold : 0
+#################### start training fold : 0
+#################### start training fold : 0
+#################### start training fold : 0
+#################### start training fold : 0
+#################### start training fold : 0
+#################### start training fold : 0
+#################### start training fold : 0
+#################### start training fold : 0
+#################### start training fold : 0
+#################### start training fold : 0
+#################### start training fold : 0
+#################### start training fold : 0
+#################### start training fold : 0
+Wed Jan 13 06:14:18 2021 Fold 0, Epoch 1, lr: 0.0001000, loss_train: 0.26960, loss_valid: 0.22840, roc_auc: 0.780000.
+roc_auc_max (0.000000 --> 0.780000). Saving model ...
+Wed Jan 13 06:23:58 2021 Fold 0, Epoch 2, lr: 0.0010000, loss_train: 0.25857, loss_valid: 0.25145, roc_auc: 0.764965.
+Wed Jan 13 06:33:38 2021 Fold 0, Epoch 3, lr: 0.0010000, loss_train: 0.25695, loss_valid: 0.24035, roc_auc: 0.745887.
+#################### start training fold : 0
+#################### start training fold : 0
+#################### start training fold : 0
+#################### start training fold : 0
+#################### start training fold : 0
+#################### start training fold : 0
+#################### start training fold : 0
+#################### start training fold : 0
+#################### start training fold : 0
+#################### start training fold : 0
+#################### start training fold : 0
+#################### start training fold : 0
+#################### start training fold : 0
+#################### start training fold : 0
+Wed Jan 13 07:02:55 2021 Fold 0, Epoch 1, lr: 0.0001000, loss_train: 0.30487, loss_valid: 0.29915, roc_auc: 0.500462.
+roc_auc_max (0.000000 --> 0.500462). Saving model ...
