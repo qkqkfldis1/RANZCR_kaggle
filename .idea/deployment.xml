@@ -5,7 +5,7 @@
       <paths name="ubuntu@182.173.185.119:16022">
         <serverdata>
           <mappings>
-            <mapping local="$PROJECT_DIR$" web="/" />
+            <mapping deploy="/home/ubuntu/lyh/RANZCR_kaggle" local="$PROJECT_DIR$" web="/" />
           </mappings>
         </serverdata>
       </paths>
@@ -13,6 +13,13 @@
         <serverdata>
           <mappings>
             <mapping local="$PROJECT_DIR$" web="/" />
+          </mappings>
+        </serverdata>
+      </paths>
+      <paths name="ubuntu@182.173.185.119:16022 (2)">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/home/ubuntu/lyh/RANZCR_kaggle" local="$PROJECT_DIR$" web="/" />
           </mappings>
         </serverdata>
       </paths>
@@ -62,6 +69,13 @@
         <serverdata>
           <mappings>
             <mapping deploy="/home/youhanlee/project/RANZCR_kaggle" local="$PROJECT_DIR$" />
+          </mappings>
+        </serverdata>
+      </paths>
+      <paths name="youhanlee@147.43.114.29:9875 (4)">
+        <serverdata>
+          <mappings>
+            <mapping local="$PROJECT_DIR$" web="/" />
           </mappings>
         </serverdata>
       </paths>
