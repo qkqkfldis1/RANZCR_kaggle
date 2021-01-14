@@ -311,7 +311,11 @@ def main():
 
     from collections import OrderedDict
     new_state_dict = OrderedDict()
+<<<<<<< HEAD
     state_dict = torch.load('../src_nih/weights_nih_pre/resnet200d_fold0_best_AUC_0.7737.pth')
+=======
+    state_dict = torch.load('../src_nih/weights_nih_pre/resnet200d_fold0_best_AUC_0.8229.pth')
+>>>>>>> e083262b89ca3e7c38bb6e67aa3ff459a5317409
     for k, v in state_dict.items():
         name = k[7:] # remove `module.`
         new_state_dict[name] = v
