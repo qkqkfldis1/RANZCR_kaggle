@@ -3,11 +3,9 @@
 - https://www.kaggle.com/c/ranzcr-clip-catheter-line-classification/overview
 
 # Ideas
-- Lung segmentation 을 가지고 feature 뽑거나, 등등..?
-    - https://www.kaggle.com/c/rsna-pneumonia-detection-challenge/notebooks?competitionId=10338&sortBy=voteCount
-    - https://www.kaggle.com/eduardomineo/u-net-lung-segmentation-montgomery-shenzhen/data
-    - https://www.kaggle.com/kmader/dsb-lung-segmentation-algorithm
-        - 아래 External data Chest Xray dataset 활용?
+- https://www.kaggle.com/c/rsna-pneumonia-detection-challenge/notebooks?competitionId=10338&sortBy=voteCount
+- https://www.kaggle.com/eduardomineo/u-net-lung-segmentation-montgomery-shenzhen/data
+- https://www.kaggle.com/kmader/dsb-lung-segmentation-algorithm
 
 # External data
 - Chest Xray Masks and Labels
